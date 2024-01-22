@@ -30,6 +30,8 @@ class _P2PVideoState extends State<P2PVideo> {
 
   bool _loading = false;
 
+  var _text= '';
+
   void _onTrack(RTCTrackEvent event) {
     print("TRACK EVENT: ${event.streams.map((e) => e.id)}, ${event.track.id}");
     if (event.track.kind == "video") {
@@ -48,6 +50,15 @@ class _P2PVideoState extends State<P2PVideo> {
         break;
       default:
         print("Data Channel State: $state");
+    }
+  }
+
+  void _onDataChannelMessage(RTCDataChannelMessage data) {
+    if (data.isBinary) {
+      print('Got binary [' + data.binary.toString() + ']');
+    } else{
+      _text = data.text;
+      print('Got text: ' + _text);
     }
   }
 
@@ -75,46 +86,46 @@ class _P2PVideoState extends State<P2PVideo> {
     return _peerConnection!
         .createOffer()
         .then((offer) {
-          return _peerConnection!.setLocalDescription(offer);
-        })
+      return _peerConnection!.setLocalDescription(offer);
+    })
         .then(_waitForGatheringComplete)
         .then((_) async {
-          var des = await _peerConnection!.getLocalDescription();
-          var headers = {
-            'Content-Type': 'application/json',
-          };
-          var request = http.Request(
-            'POST',
-            Uri.parse(
-                'http://10.18.184.94:8080/offer'), // CHANGE URL HERE TO LOCAL SERVER
-          );
-          request.body = json.encode(
-            {
-              "sdp": des!.sdp,
-              "type": des.type,
-              "video_transform": transformType,
-            },
-          );
-          request.headers.addAll(headers);
+      var des = await _peerConnection!.getLocalDescription();
+      var headers = {
+        'Content-Type': 'application/json',
+      };
+      var request = http.Request(
+        'POST',
+        Uri.parse(
+            'http://10.18.173.52:8080/offer'), // CHANGE URL HERE TO LOCAL SERVER
+      );
+      request.body = json.encode(
+        {
+          "sdp": des!.sdp,
+          "type": des.type,
+          "video_transform": transformType,
+        },
+      );
+      request.headers.addAll(headers);
 
-          http.StreamedResponse response = await request.send();
+      http.StreamedResponse response = await request.send();
 
-          String data = "";
-          print(response);
-          if (response.statusCode == 200) {
-            data = await response.stream.bytesToString();
-            var dataMap = json.decode(data);
-            print(dataMap);
-            await _peerConnection!.setRemoteDescription(
-              RTCSessionDescription(
-                dataMap["sdp"],
-                dataMap["type"],
-              ),
-            );
-          } else {
-            print(response.reasonPhrase);
-          }
-        });
+      String data = "";
+      print(response);
+      if (response.statusCode == 200) {
+        data = await response.stream.bytesToString();
+        var dataMap = json.decode(data);
+        print(dataMap);
+        await _peerConnection!.setRemoteDescription(
+          RTCSessionDescription(
+            dataMap["sdp"],
+            dataMap["type"],
+          ),
+        );
+      } else {
+        print(response.reasonPhrase);
+      }
+    });
   }
 
   Future<void> _makeCall() async {
@@ -138,19 +149,25 @@ class _P2PVideoState extends State<P2PVideo> {
     _dataChannelDict = RTCDataChannelInit();
     _dataChannelDict!.ordered = true;
     _dataChannel = await _peerConnection!.createDataChannel(
-      "chat",
+      "data",
       _dataChannelDict!,
     );
+    // _peerConnection!.onDataChannel = (channel) {
+    //   _dataChannel = channel;
+    // };
+
     _dataChannel!.onDataChannelState = _onDataChannelState;
-    // _dataChannel!.onMessage = _onDataChannelMessage;
+    _dataChannel!.onMessage = _onDataChannelMessage;
 
     final mediaConstraints = <String, dynamic>{
       'audio': false,
       'video': {
         'mandatory': {
-          'minWidth':
-              '500', // Provide your own width, height and frame rate here
-          'minHeight': '500',
+          // Provide your own width, height and frame rate here
+          //'minWidth': '1080',
+          'width':1080,
+          'height':1920,
+          //'minHeight': '1080',
           'minFrameRate': '30',
         },
         // 'facingMode': 'user',
@@ -238,10 +255,10 @@ class _P2PVideoState extends State<P2PVideo> {
                                 color: Colors.black,
                                 child: _loading
                                     ? Center(
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 4,
-                                        ),
-                                      )
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 4,
+                                  ),
+                                )
                                     : Container(),
                               ),
                             ),
@@ -253,22 +270,22 @@ class _P2PVideoState extends State<P2PVideo> {
                             ),
                             _inCalling
                                 ? Align(
-                                    alignment: Alignment.bottomRight,
-                                    child: InkWell(
-                                      onTap: _toggleCamera,
-                                      child: Container(
-                                        height: 50,
-                                        width: 50,
-                                        color: Colors.black26,
-                                        child: Center(
-                                          child: Icon(
-                                            Icons.cameraswitch,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                      ),
+                              alignment: Alignment.bottomRight,
+                              child: InkWell(
+                                onTap: _toggleCamera,
+                                child: Container(
+                                  height: 50,
+                                  width: 50,
+                                  color: Colors.black26,
+                                  child: Center(
+                                    child: Icon(
+                                      Icons.cameraswitch,
+                                      color: Colors.grey,
                                     ),
-                                  )
+                                  ),
+                                ),
+                              ),
+                            )
                                 : Container(),
                           ],
                         ),
@@ -291,15 +308,15 @@ class _P2PVideoState extends State<P2PVideo> {
                                   transformType = value.toString();
                                 });
                               },
-                              items: ["none", "edges", "cartoon", "rotate"]
+                              items: ["none", "edges", "cartoon", "Detection"]
                                   .map(
                                     (e) => DropdownMenuItem(
-                                      value: e,
-                                      child: Text(
-                                        e,
-                                      ),
-                                    ),
-                                  )
+                                  value: e,
+                                  child: Text(
+                                    e,
+                                  ),
+                                ),
+                              )
                                   .toList(),
                             ),
                           ],
@@ -315,15 +332,15 @@ class _P2PVideoState extends State<P2PVideo> {
                     onTap: _loading
                         ? () {}
                         : _inCalling
-                            ? _stopCall
-                            : _makeCall,
+                        ? _stopCall
+                        : _makeCall,
                     child: Container(
                       decoration: BoxDecoration(
                         color: _loading
                             ? Colors.amber
                             : _inCalling
-                                ? Colors.red
-                                : Theme.of(context).primaryColor,
+                            ? Colors.red
+                            : Theme.of(context).primaryColor,
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: Padding(
@@ -331,17 +348,17 @@ class _P2PVideoState extends State<P2PVideo> {
                             horizontal: 10, vertical: 5),
                         child: _loading
                             ? Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: CircularProgressIndicator(),
-                              )
+                          padding: const EdgeInsets.all(8.0),
+                          child: CircularProgressIndicator(),
+                        )
                             : Text(
-                                _inCalling ? "STOP" : "START",
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                          _inCalling ? "STOP" : "START",
+                          style: TextStyle(
+                            fontSize: 24,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                   ),

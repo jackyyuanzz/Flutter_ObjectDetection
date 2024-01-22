@@ -29,13 +29,14 @@ class VideoTransformTrack(MediaStreamTrack):
 
     kind = "video"
 
-    def __init__(self, track, transform):
+    def __init__(self, track, transform, datachannel):
         super().__init__()  # don't forget this!
         self.track = track
         self.transform = transform
         self.model = torch.hub.load("ultralytics/yolov5", "yolov5s")
         self.model.eval()
         self.model.cuda()
+        # self.datachannel = datachannel
 
     async def recv(self):
         frame = await self.track.recv()
@@ -79,18 +80,9 @@ class VideoTransformTrack(MediaStreamTrack):
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
             return new_frame
-        elif self.transform == "rotate":
-            # rotate image
-            # img = frame.to_ndarray(format="bgr24")
-            # rows, cols, _ = img.shape
-            # M = cv2.getRotationMatrix2D((cols / 2, rows / 2), frame.time * 45, 1)
-            # img = cv2.warpAffine(img, M, (cols, rows))
-
-            # rebuild a VideoFrame, preserving timing information
-            # new_frame = VideoFrame.from_ndarray(img, format="bgr24")
-            # new_frame.pts = frame.pts
-            # new_frame.time_base = frame.time_base
+        elif self.transform == "Detection":
             img = frame.to_ndarray(format="rgb24")
+            print(img.shape)
             img_tensor = torch.tensor(img).unsqueeze(0).permute(0,3,1,2).float()/255.0
             img_tensor = img_tensor.cuda()
             with torch.no_grad():
@@ -100,6 +92,10 @@ class VideoTransformTrack(MediaStreamTrack):
             new_frame = VideoFrame.from_ndarray(img_plotted, format="rgb24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
+            
+            global data_channel
+            if data_channel is not None:
+                data_channel.send('test_message')
             
             return new_frame
         else:
@@ -132,13 +128,20 @@ async def offer(request):
     # prepare local media
     player = MediaPlayer(os.path.join(ROOT, "demo-instruct.wav"))
     recorder = MediaBlackhole()
+    
+    #data_channel = pc.createDataChannel('data')
+    global data_channel
+    data_channel = None
 
     @pc.on("datachannel")
     def on_datachannel(channel):
-        @channel.on("message")
-        def on_message(message):
-            if isinstance(message, str) and message.startswith("ping"):
-                channel.send("pong" + message[4:])
+        print('data_channel assigned')
+        global data_channel
+        data_channel = channel
+        # @channel.on("message")
+        # def on_message(message):
+            # if isinstance(message, str) and message.startswith("ping"):
+                # channel.send("pong" + message[4:])
 
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
@@ -157,7 +160,7 @@ async def offer(request):
         elif track.kind == "video":
             pc.addTrack(
                 VideoTransformTrack(
-                    relay.subscribe(track), transform=params["video_transform"]
+                    relay.subscribe(track), transform=params["video_transform"], datachannel=data_channel
                 )
             )
 

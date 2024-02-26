@@ -5,6 +5,7 @@ import logging
 import os
 import ssl
 import uuid
+os.add_dll_directory('C:/Users/thoma/anaconda3/envs/py38/DLLs') # For aiortc installed in editable mode (need to manually install opus & vpx), and when python cannot detect DLLs (opus, vpx)
 
 import cv2
 from aiohttp import web
@@ -14,6 +15,7 @@ from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from aiortc.contrib.media import MediaBlackhole, MediaPlayer, MediaRecorder, MediaRelay
 from server_utils.plot import non_max_suppression, plot_images, output_to_target
 import torch
+import numpy as np
 
 ROOT = os.path.dirname(__file__)
 
@@ -36,13 +38,27 @@ class VideoTransformTrack(MediaStreamTrack):
         self.model = torch.hub.load("ultralytics/yolov5", "yolov5s")
         self.model.eval()
         self.model.cuda()
-        # self.datachannel = datachannel
 
     async def recv(self):
         frame = await self.track.recv()
+        img = frame.to_ndarray(format="bgr24")
+        img_yuv = frame.to_ndarray(format="yuv420p")
+        height, width, _ = img.shape
+        blocksize = int(np.ceil(height*0.05))
+        Nblocks = 10
+        timestamp = 0
+        margin = int(blocksize*0.25) # only average values inside margin
+        hexa_digit = ''
+        for i in range(Nblocks):
+            block = img_yuv[margin:blocksize-margin,i*blocksize+margin:blocksize*(i+1)-margin]
+            digit = np.round(np.mean(block[:,:]) / 32)
+            hexa_digit += str(int(digit))
+            timestamp += 8**i*digit
+        print('Hexadecimal: ', hexa_digit)
+        print('Estimated Timestamp: ', timestamp)
+        cv2.imwrite('saved_frames/{}.jpg'.format(timestamp), img)
 
         if self.transform == "cartoon":
-            img = frame.to_ndarray(format="bgr24")
 
             # prepare color
             img_color = cv2.pyrDown(cv2.pyrDown(img))
@@ -72,7 +88,6 @@ class VideoTransformTrack(MediaStreamTrack):
             return new_frame
         elif self.transform == "edges":
             # perform edge detection
-            img = frame.to_ndarray(format="bgr24")
             img = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2BGR)
 
             # rebuild a VideoFrame, preserving timing information
@@ -81,8 +96,7 @@ class VideoTransformTrack(MediaStreamTrack):
             new_frame.time_base = frame.time_base
             return new_frame
         elif self.transform == "Detection":
-            img = frame.to_ndarray(format="rgb24")
-            print(img.shape)
+            img = cv2.resize(img, (640,640))
             img_tensor = torch.tensor(img).unsqueeze(0).permute(0,3,1,2).float()/255.0
             img_tensor = img_tensor.cuda()
             with torch.no_grad():
@@ -92,6 +106,7 @@ class VideoTransformTrack(MediaStreamTrack):
             new_frame = VideoFrame.from_ndarray(img_plotted, format="rgb24")
             new_frame.pts = frame.pts
             new_frame.time_base = frame.time_base
+            print(frame.pts)
             
             global data_channel
             if data_channel is not None:

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 
+
 class P2PVideo extends StatefulWidget {
   const P2PVideo({Key? key}) : super(key: key);
 
@@ -53,12 +54,15 @@ class _P2PVideoState extends State<P2PVideo> {
     }
   }
 
-  void _onDataChannelMessage(RTCDataChannelMessage data) {
+  void _onDataChannelMessage(RTCDataChannelMessage data) async{
     if (data.isBinary) {
       print('Got binary [' + data.binary.toString() + ']');
     } else{
       _text = data.text;
       print('Got text: ' + _text);
+      List<StatsReport> _statsReports;
+      _statsReports = await _peerConnection!.getStats();
+      print('Timestamp' + _statsReports.first.timestamp.toString());
     }
   }
 
@@ -97,7 +101,7 @@ class _P2PVideoState extends State<P2PVideo> {
       var request = http.Request(
         'POST',
         Uri.parse(
-            'http://10.18.173.52:8080/offer'), // CHANGE URL HERE TO LOCAL SERVER
+            'http://10.18.243.56:8080/offer'), // CHANGE URL HERE TO LOCAL SERVER
       );
       request.body = json.encode(
         {
@@ -115,6 +119,7 @@ class _P2PVideoState extends State<P2PVideo> {
       if (response.statusCode == 200) {
         data = await response.stream.bytesToString();
         var dataMap = json.decode(data);
+        print("======Response dataMap======");
         print(dataMap);
         await _peerConnection!.setRemoteDescription(
           RTCSessionDescription(
@@ -164,10 +169,10 @@ class _P2PVideoState extends State<P2PVideo> {
       'video': {
         'mandatory': {
           // Provide your own width, height and frame rate here
-          //'minWidth': '1080',
-          'width':1080,
-          'height':1920,
-          //'minHeight': '1080',
+          'minWidth': '1500',
+          //'width':1080,
+          //'height':1920,
+          'minHeight': '1920',
           'minFrameRate': '30',
         },
         // 'facingMode': 'user',
@@ -186,8 +191,55 @@ class _P2PVideoState extends State<P2PVideo> {
         _peerConnection!.addTrack(element, stream);
       });
 
+      // Choose resolution option
+      RTCRtpParameters _parameters;
+      List<RTCRtpSender> Senders;
+      Senders = await _peerConnection!.getSenders();
+      Senders.forEach((element){
+        _parameters = element.parameters;
+        // _parameters.degradationPreference = degradationPreferenceforString('maintain-resolution');
+
+        // Enable header extension video frame tracking id
+        List<RTCHeaderExtension> _headerExtensions = [
+          RTCHeaderExtension(uri:
+        'http://www.webrtc.org/experiments/rtp-hdrext/video-frame-tracking-id',
+        id: 15, encrypted:false),
+          RTCHeaderExtension(uri:
+          'http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time',
+              id: 10, encrypted:false),
+        RTCHeaderExtension(uri:
+        'http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time',
+        id: 2, encrypted:false)];
+        _parameters.headerExtensions = _headerExtensions;
+
+        element.setParameters(_parameters);
+      });
+
+
       print("NEGOTIATE");
       await _negotiateRemoteConnection();
+
+      // Try after negotiate
+      // Senders = await _peerConnection!.getSenders();
+      Senders.forEach((element){
+        _parameters = element.parameters;
+        // _parameters.degradationPreference = degradationPreferenceforString('maintain-resolution');
+
+        // Enable header extension video frame tracking id
+        List<RTCHeaderExtension> _headerExtensions = [RTCHeaderExtension(uri:
+        'http://www.webrtc.org/experiments/rtp-hdrext/video-frame-tracking-id',
+            id: 15, encrypted:false),
+          RTCHeaderExtension(uri:
+          'http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time',
+              id: 10, encrypted:false),
+          RTCHeaderExtension(uri:
+          'http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time',
+              id: 2, encrypted:false)];
+        _parameters.headerExtensions = _headerExtensions;
+
+        element.setParameters(_parameters);
+      });
+
     } catch (e) {
       print(e.toString());
     }
